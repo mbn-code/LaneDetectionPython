@@ -3,7 +3,7 @@ import numpy as np
 import time
 
 # Read the video
-video_path = "/Users/mbn/Documents/Programmering/python3/LaneDetectionPython/lane_detect_2.mp4"
+video_path = "/Users/mbn/Documents/Programmering/python3/LaneDetectionPython/Better test.mp4"
 cap = cv2.VideoCapture(video_path)
 
 # Define the codec and create VideoWriter object to save the output
@@ -14,25 +14,25 @@ fourcc = cv2.VideoWriter_fourcc(*"mp4v")
 output_video = cv2.VideoWriter("line_detection_output.mp4", fourcc, fps, (frame_width, frame_height))
 
 # Define the region of interest (ROI) polygon vertices
-roi_vertices = np.array([[(0, frame_height), (frame_width * 0.7, frame_height * 0.30),
+roi_vertices = np.array([[(0, frame_height), (frame_width * 0.7, frame_height * 0.1),
                           (frame_width * 0.6, frame_height * 0.30), (frame_width, frame_height)]],
                         dtype=np.int32)
 
 # Define the number of dots to draw
-num_dots = 1
+num_dots = 5
 
 # Define the dot radius
 dot_radius = 3
 
 # Define smoothing parameters
-smoothing_factor = 0.008
+smoothing_factor = 0.03
 prev_dot_position = None
 
 # Define steering parameters
-steering_threshold = 600
+steering_threshold = 250
 
 # Define reset duration (in seconds)
-reset_duration = 0.1
+reset_duration = 2
 
 # Initialize the timer variables
 start_time = time.time()
@@ -114,10 +114,6 @@ while cap.isOpened():
             car_direction = "Small Correction Right"
         else:
             car_direction = "Small Correction Left"
-
-    # Determine if car should stay centered
-    if abs(steering_angle) <= 15:
-        car_direction = "Stay Centered"
 
     # Write the car positioning information on the frame
     cv2.putText(frame, car_direction, (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
