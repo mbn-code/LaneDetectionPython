@@ -1,184 +1,140 @@
 import cv2
 import numpy as np
+import time
 
-# Number of frames to wait before updating the lane line
-DELAY_FRAMES = 10
+# Read the video
+video_path = "/Users/mbn/Documents/Programmering/python3/LaneDetectionPython/lane_detect_2.mp4"
+cap = cv2.VideoCapture(video_path)
 
-# Initialize empty lists for left and right lane lines
-left_lines = []
-right_lines = []
+# Define the codec and create VideoWriter object to save the output
+frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+fps = cap.get(cv2.CAP_PROP_FPS)
+fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+output_video = cv2.VideoWriter("line_detection_output.mp4", fourcc, fps, (frame_width, frame_height))
 
-# Counter to keep track of consecutive frames with similar lane line positions
-frame_counter = 0
+# Define the region of interest (ROI) polygon vertices
+roi_vertices = np.array([[(0, frame_height), (frame_width * 0.7, frame_height * 0.30),
+                          (frame_width * 0.6, frame_height * 0.30), (frame_width, frame_height)]],
+                        dtype=np.int32)
 
-# Variable to store the latest lane mask
-latest_lane_mask = None
+# Define the number of dots to draw
+num_dots = 1
 
-def check_overlap(left_line, right_line, threshold=100):
-    """
-    Check if the left and right lines overlap by comparing the x-coordinates at a specific y-coordinate.
-    If the difference between the x-coordinates is less than the threshold, the lines are considered overlapping.
-    """
-    y = left_line[0, 1]  # Use a specific y-coordinate to check for overlapping
-    left_x = left_line[0, 0]
-    right_x = right_line[0, 0]
-    return abs(left_x - right_x) < threshold, y
+# Define the dot radius
+dot_radius = 3
 
-def estimate_lines(y, prev_left_line, prev_right_line):
-    """
-    Estimate the left and right lines using the previous non-overlapping lines and the given y-coordinate.
-    The estimated lines are created by copying and flipping the previous lines.
-    """
-    left_x = prev_left_line[0, 0]
-    right_x = prev_right_line[0, 0]
-    estimated_left_line = np.array([[left_x, y, left_x, y]], dtype=np.int32)
-    estimated_right_line = np.array([[right_x, y, right_x, y]], dtype=np.int32)
-    return estimated_left_line, estimated_right_line
+# Define smoothing parameters
+smoothing_factor = 0.008
+prev_dot_position = None
 
-def lane_detection(image):
-    global left_lines, right_lines, frame_counter, latest_lane_mask
+# Define steering parameters
+steering_threshold = 600
 
-    # Convert the image to grayscale
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+# Define reset duration (in seconds)
+reset_duration = 0.1
 
-    # Apply Gaussian blur to reduce noise
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+# Initialize the timer variables
+start_time = time.time()
+reset_timer = 0
 
-    # Apply Canny edge detection
-    edges = cv2.Canny(blurred, 50, 150)
+# Process each frame of the video
+while cap.isOpened():
+    ret, frame = cap.read()
 
-    # Define a region of interest (ROI)
-    height, width = edges.shape
-    roi_vertices = [
-        (0, height),
-        (width // 2, height // 2),
-        (width, height)
-    ]
-    mask = np.zeros_like(edges)
-    cv2.fillPoly(mask, np.array([roi_vertices], dtype=np.int32), 255)
-    masked_edges = cv2.bitwise_and(edges, mask)
-
-    # Apply Hough line transform to detect lines
-    lines = cv2.HoughLinesP(masked_edges, rho=1, theta=np.pi/180, threshold=50, minLineLength=100, maxLineGap=50)
-
-    # Check if lines are detected
-    if lines is not None:
-        # Separate the left and right lane points
-        left_points = []
-        right_points = []
-        for line in lines:
-            x1, y1, x2, y2 = line[0]
-            slope = (y2 - y1) / (x2 - x1)
-            if abs(slope) < 0.5:
-                continue
-            if slope < 0:
-                left_points.append((x1, y1))
-                left_points.append((x2, y2))
-            else:
-                right_points.append((x1, y1))
-                right_points.append((x2, y2))
-
-        # Add new lane lines to the list
-        left_lines.append(left_points)
-        right_lines.append(right_points)
-
-        # Limit the list size to avoid memory issues
-        if len(left_lines) > 100:
-            left_lines = left_lines[-100:]
-        if len(right_lines) > 100:
-            right_lines = right_lines[-100:]
-
-        # Combine the lane points from multiple frames
-        combined_left_points = [point for sublist in left_lines for point in sublist]
-        combined_right_points = [point for sublist in right_lines for point in sublist]
-
-        # Fit polynomial curves to the combined left and right lane points
-        if len(combined_left_points) > 0:
-            combined_left_points = np.array(combined_left_points)
-            left_coeffs = np.polyfit(combined_left_points[:, 1], combined_left_points[:, 0], deg=2)
-            left_line = np.poly1d(left_coeffs)
-        else:
-            return image
-
-        if len(combined_right_points) > 0:
-            combined_right_points = np.array(combined_right_points)
-            right_coeffs = np.polyfit(combined_right_points[:, 1], combined_right_points[:, 0], deg=2)
-            right_line = np.poly1d(right_coeffs)
-        else:
-            return image
-
-        # Generate x-coordinates for the curves
-        plot_y = np.linspace(height, height // 2, num=100)
-        left_fit_x = left_line(plot_y)
-        right_fit_x = right_line(plot_y)
-
-        # Delay the update of the lane line if the positions change too quickly
-        if frame_counter >= DELAY_FRAMES or len(left_lines) < DELAY_FRAMES:
-            # Check if the left and right lines overlap
-            overlap, y = check_overlap(np.array([[left_fit_x[0], plot_y[0], left_fit_x[-1], plot_y[-1]]], dtype=np.int32),
-                                       np.array([[right_fit_x[0], plot_y[0], right_fit_x[-1], plot_y[-1]]], dtype=np.int32))
-            if overlap:
-                # Determine the overlapping region
-                left_end_x = left_fit_x[-1]
-                right_end_x = right_fit_x[-1]
-                overlap_x = max(0, min(left_end_x, right_end_x))
-                overlap_y = y
-                overlap_index = np.where(plot_y >= overlap_y)[0][0]
-
-                # Cut off the lines at the overlapping region
-                left_fit_x[overlap_index:] = overlap_x
-                right_fit_x[overlap_index:] = overlap_x
-
-            # Create a mask for the lane area
-            lane_mask = np.zeros_like(image)
-            left_pts = np.array([np.transpose(np.vstack([left_fit_x, plot_y]))])
-            right_pts = np.array([np.flipud(np.transpose(np.vstack([right_fit_x, plot_y])))])
-            pts = np.hstack((left_pts, right_pts))
-            cv2.fillPoly(lane_mask, np.int_([pts]), (0, 255, 0))
-
-            # Overlay the lane area on the original image
-            result = cv2.addWeighted(image, 0.8, lane_mask, 0.4, 0)
-
-            # Reset the frame counter
-            frame_counter = 0
-
-            # Store the latest lane mask
-            latest_lane_mask = lane_mask
-
-            return result
-        else:
-            # Increment the frame counter
-            frame_counter += 1
-
-            # Display the latest lane mask during the delay period
-            result = cv2.addWeighted(image, 0.8, latest_lane_mask, 0.4, 0)
-
-            return result
-    else:
-        # Reset the frame counter
-        frame_counter = 0
-
-        return image
-
-
-# Read the input video
-video = cv2.VideoCapture("/Users/mbn/Documents/Programmering/python3/LaneDetectionPython/Better test.mp4")
-
-while True:
-    ret, frame = video.read()
     if not ret:
         break
 
-    # Perform lane detection on each frame
-    result = lane_detection(frame)
+    # Preprocess the frame
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(blur, 50, 150)
 
-    # Display the result
-    cv2.imshow("Lane Detection", result)
+    # Apply ROI mask
+    roi_mask = np.zeros_like(edges)
+    cv2.fillPoly(roi_mask, roi_vertices, 255)
+    masked_edges = cv2.bitwise_and(edges, roi_mask)
 
-    # Exit if 'q' is pressed
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+    # Perform Probabilistic Hough Line Transform
+    lines = cv2.HoughLinesP(masked_edges, 1, np.pi / 180, threshold=100, minLineLength=100, maxLineGap=10)
+
+    # Calculate the average dot position
+    dot_positions = []
+    if lines is not None:
+        if lines.shape[0] > 1:
+            avg_x = np.mean(lines[:, :, [0, 2]])
+            avg_y = np.mean(lines[:, :, [1, 3]])
+            dot_positions = np.column_stack((avg_x, avg_y))
+            dot_positions = dot_positions.reshape((-1, 2))
+        else:
+            line = lines[0]
+            x1, y1, x2, y2 = line[0]
+            dx = (x2 - x1) / (num_dots - 1)
+            dy = (y2 - y1) / (num_dots - 1)
+            dot_positions = [(x1 + i * dx, y1 + i * dy) for i in range(num_dots)]
+            dot_positions = np.array(dot_positions)
+
+    # Reset average dot position if timer exceeds reset duration
+    elapsed_time = time.time() - start_time
+    if elapsed_time >= reset_timer:
+        prev_dot_position = None
+        start_time = time.time()
+        reset_timer = np.random.uniform(low=reset_duration, high=reset_duration + 1)
+
+        # Add label indicating the average reset
+        cv2.putText(frame, "Average Reset", (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+
+    # Smoothing the dot movement
+    if prev_dot_position is None:
+        smoothed_dot_positions = dot_positions
+    else:
+        smoothed_dot_positions = smoothing_factor * dot_positions + (1 - smoothing_factor) * prev_dot_position
+
+    # Update the previous dot position
+    prev_dot_position = smoothed_dot_positions
+
+    # Draw the smoothed dot positions
+    for dot_position in smoothed_dot_positions:
+        cv2.circle(frame, tuple(map(int, dot_position)), radius=dot_radius, color=(0, 255, 0), thickness=-1)
+
+    # Calculate car positioning based on the average dot position
+    car_position = np.mean(smoothed_dot_positions, axis=0)[0]
+    frame_center = frame_width // 2
+
+    # Calculate steering angle and small correction
+    steering_angle = car_position - frame_center
+
+    if abs(steering_angle) > steering_threshold:
+        if steering_angle < 0:
+            car_direction = "Turn Right"
+        else:
+            car_direction = "Turn Left"
+    else:
+        if steering_angle < 0:
+            car_direction = "Small Correction Right"
+        else:
+            car_direction = "Small Correction Left"
+
+    # Determine if car should stay centered
+    if abs(steering_angle) <= 15:
+        car_direction = "Stay Centered"
+
+    # Write the car positioning information on the frame
+    cv2.putText(frame, car_direction, (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+
+    # Write the processed frame to the output video
+    output_video.write(frame)
+
+    # Display the frame with the detected dots
+    cv2.imshow("Line Detection", frame)
+
+    # Exit on 'q' key press
+    if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
-# Release the video capture and close all windows
-video.release()
+# Release the video capture and output video objects
+cap.release()
+output_video.release()
+
+# Destroy all OpenCV windows
 cv2.destroyAllWindows()
