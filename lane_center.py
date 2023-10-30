@@ -47,7 +47,7 @@ def stay_in_center(frame, smoothed_dot_positions):
 
 def main():
     # Read the video
-    video_path = "/Users/mbn/Documents/Programmering/python3/LaneDetectionPython/Better test.mp4"
+    video_path = "Better test.mp4"
     cap = cv2.VideoCapture(video_path)
 
     # Define the codec and create VideoWriter object to save the output
@@ -117,8 +117,6 @@ def main():
                 end_point = (int(sorted_positions[i+1][0]), int(sorted_positions[i+1][1]))
                 cv2.line(processed_frame, start_point, end_point, (255, 0, 0), 2)
 
-        # Write the processed frame to the output video
-        output_video.write(processed_frame)
 
         # Display the frame with the dynamic 3D dotted line
         cv2.imshow("Line Detection", processed_frame)

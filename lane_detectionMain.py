@@ -3,7 +3,7 @@ import numpy as np
 import time
 
 # Read the video
-video_path = "/Users/mbn/Documents/Programmering/python3/LaneDetectionPython/Better test.mp4"
+video_path = "Better test.mp4"
 cap = cv2.VideoCapture(video_path)
 
 # Define the codec and create VideoWriter object to save the output
@@ -118,8 +118,6 @@ while cap.isOpened():
     # Write the car positioning information on the frame
     cv2.putText(frame, car_direction, (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
-    # Write the processed frame to the output video
-    output_video.write(frame)
 
     # Display the frame with the detected dots
     cv2.imshow("Line Detection", frame)
