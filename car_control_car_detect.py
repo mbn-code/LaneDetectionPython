@@ -63,7 +63,7 @@ def detect_lanes(video_path):
     previous_lanes = None
 
     # Load car detection cascade classifier
-    car_cascade = cv2.CascadeClassifier("/Users/mbn/Documents/Programmering/python3/LaneDetectionPython/car_cas.xml")
+    car_cascade = cv2.CascadeClassifier("car_cas.xml")
 
     while cap.isOpened():
         ret, frame = cap.read()
@@ -165,5 +165,5 @@ def detect_lanes(video_path):
     cap.release()
     cv2.destroyAllWindows()
 
-video_path = "/Users/mbn/Documents/Programmering/python3/LaneDetectionPython/Better test.mp4"
+video_path = "Better test.mp4"
 detect_lanes(video_path)

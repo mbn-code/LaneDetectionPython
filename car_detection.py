@@ -14,7 +14,7 @@ layer_names = net.getLayerNames()
 output_layers = [layer_names[i[0] - 1] for i in net.getUnconnectedOutLayers()]
 
 # Load video
-video_path = "/Users/mbn/Documents/Programmering/python3/LaneDetectionPython/Better test.mp4"
+video_path = "Better test.mp4"
 cap = cv2.VideoCapture(video_path)
 
 while True:
