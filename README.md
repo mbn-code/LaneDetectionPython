@@ -1,6 +1,6 @@
 # LaneDetectionPython
 
-![Lane Detection Example](lane_detection_output.mp4)
+![Lane Detection Example](lane_detection_sample1.mp4)
 
 LaneDetectionPython is a Python project for lane line detection and estimation. It uses popular libraries such as OpenCV (cv2), NumPy, and Matplotlib to process video data and detect lane lines in road scenes. This repository is a simple but effective way to get started with lane detection using computer vision techniques.
 
