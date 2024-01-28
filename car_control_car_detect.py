@@ -49,12 +49,30 @@ def region_of_interest(img, vertices):
     masked_img = cv2.bitwise_and(img, mask)
     return masked_img
 
-def estimate_lanes(lines):
-    # Implement the logic to estimate lanes based on previous lane lines
-    # Return the estimated lane lines
+def estimate_lanes(previous_lanes):
+    if previous_lanes is None or len(previous_lanes) == 0:
+        return None  # No previous lanes available
 
-    # Placeholder implementation: return the input lines as is
-    return lines
+    # Extract slopes and intercepts from previous lanes
+    slopes_intercepts = [
+        [(y2 - y1) / (x2 - x1), y1 - ((y2 - y1) / (x2 - x1)) * x1]
+        for line in previous_lanes
+        for x1, y1, x2, y2 in line
+    ]
+
+    avg_slope, avg_intercept = np.mean(slopes_intercepts, axis=0)
+
+    # Define y-coordinate range for the estimated lane lines
+    y1 = int(0.6 * previous_lanes[0][0][1])  # Use the y-coordinate of the top of the first lane line
+    y2 = previous_lanes[0][0][3]  # Use the y-coordinate of the bottom of the first lane line
+
+    # Calculate the x-coordinates of the estimated lane lines using the average slope and intercept
+    x1_estimate = int((y1 - avg_intercept) / avg_slope)
+    x2_estimate = int((y2 - avg_intercept) / avg_slope)
+
+    # Return the estimated lane lines as a list
+    estimated_lines = [[[x1_estimate, y1, x2_estimate, y2]]]
+    return estimated_lines
 
 def detect_lanes(video_path):
     cap = cv2.VideoCapture(video_path)
