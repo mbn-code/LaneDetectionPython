@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-# Function to make the car stay in the center and render a dynamic 3D dotted line
+# Function to make the car stay in the center and render a dynamic 3D dotted line# Function to make the car stay in the center and render a dynamic 3D dotted line
 def stay_in_center(frame, smoothed_dot_positions):
     height, width = frame.shape[:2]
     target_position = width // 2
@@ -18,12 +18,13 @@ def stay_in_center(frame, smoothed_dot_positions):
         # Calculate the steering angle and determine the car movement label
         steering_angle = car_position - frame_center
 
-        if abs(steering_angle) > 50:
+        # Adjust the steering angle threshold for better predictions
+        if abs(steering_angle) > 80:
             if steering_angle < 0:
                 car_direction = "Turn Right"
             else:
                 car_direction = "Turn Left"
-        elif abs(steering_angle) > 10:
+        elif abs(steering_angle) > 20:
             if steering_angle < 0:
                 car_direction = "Small Correction Right"
             else:
@@ -42,7 +43,6 @@ def stay_in_center(frame, smoothed_dot_positions):
     cv2.putText(frame, car_direction, (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
     return frame, curvature
-
 
 
 def main():

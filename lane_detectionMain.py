@@ -32,7 +32,7 @@ prev_dot_position = None
 steering_threshold = 250
 
 # Define reset duration (in seconds)
-reset_duration = 2
+reset_duration = 1
 
 # Initialize the timer variables
 start_time = time.time()
@@ -57,6 +57,12 @@ while cap.isOpened():
 
     # Perform Probabilistic Hough Line Transform
     lines = cv2.HoughLinesP(masked_edges, 1, np.pi / 180, threshold=100, minLineLength=100, maxLineGap=10)
+
+    # Draw the raw dots on the frame
+    for line in lines:
+        x1, y1, x2, y2 = line[0]
+        cv2.circle(frame, (x1, y1), radius=dot_radius, color=(0, 0, 255), thickness=-1)
+        cv2.circle(frame, (x2, y2), radius=dot_radius, color=(0, 0, 255), thickness=-1)
 
     # Calculate the average dot position
     dot_positions = []
@@ -118,8 +124,10 @@ while cap.isOpened():
     # Write the car positioning information on the frame
     cv2.putText(frame, car_direction, (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
+    # Draw ROI polygon on the frame
+    cv2.polylines(frame, [roi_vertices], isClosed=True, color=(255, 255, 255), thickness=2)
 
-    # Display the frame with the detected dots
+    # Display the frame with the detected dots and additional information
     cv2.imshow("Line Detection", frame)
 
     # Exit on 'q' key press
