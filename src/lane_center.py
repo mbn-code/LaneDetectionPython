@@ -200,6 +200,12 @@ def calculate_dot_positions(lines):
         dot_positions = np.array(dot_positions)
     return dot_positions
 
+def lerp(a: np.ndarray, b: np.ndarray, t: float) -> np.ndarray:
+    """
+    Linearly interpolate between two arrays a and b by factor t.
+    """
+    return a + t * (b - a)
+
 def main():
     video_path = "videos/Better test.mp4"
     cap = cv2.VideoCapture(video_path)
@@ -229,7 +235,7 @@ def main():
         if prev_dot_positions is None or prev_dot_positions.shape[0] != dot_positions.shape[0]:
             smoothed_dot_positions = dot_positions
         else:
-            smoothed_dot_positions = SMOOTHING_FACTOR * dot_positions + (1 - SMOOTHING_FACTOR) * prev_dot_positions
+            smoothed_dot_positions = lerp(prev_dot_positions, dot_positions, SMOOTHING_FACTOR)
 
         prev_dot_positions = smoothed_dot_positions
         processed_frame, curvature = stay_in_center(frame, smoothed_dot_positions)
