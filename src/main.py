@@ -1,194 +1,264 @@
 import cv2
 import numpy as np
+from typing import Tuple
 
-def process_frame(frame):
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+# Constants
+SMOOTHING_FACTOR = 1
+THRESHOLD = 100
+MIN_LINE_LENGTH = 100
+MAX_LINE_GAP = 10
+ROI_VERTICES_RATIO = [(0, 1), (0.7, 0.1), (0.7, 0.1), (1, 1)]
+DOT_SIZE = 5  # New constant for dot visualization
+
+# Visual settings
+FONT = cv2.FONT_HERSHEY_SIMPLEX
+TEXT_POSITION = (20, 50)
+OVERLAY_ALPHA = 0.3
+DASHBOARD_HEIGHT = 100
+DASHBOARD_ALPHA = 0.3
+
+# Colors (BGR format)
+TEXT_COLOR = (0, 0, 255)
+DOT_COLOR = (255, 0, 0)  # Changed from LINE_COLOR
+DASHBOARD_COLOR = (20, 20, 20)
+SUCCESS_COLOR = (0, 255, 0)
+WARNING_COLOR = (0, 165, 255)
+DANGER_COLOR = (0, 0, 255)
+LINE_COLOR = (0, 255, 255)  # Define LINE_COLOR
+
+# Lane detection parameters
+MIN_LANE_WIDTH = 100  # pixels
+MAX_LANE_WIDTH = 500  # pixels
+MIN_CONFIDENCE_SCORE = 0.6
+
+def calculate_lane_confidence(left_points: np.ndarray, right_points: np.ndarray) -> float:
+    """Calculate confidence score based on lane detection quality"""
+    if len(left_points) < 2 or len(right_points) < 2:
+        return 0.0
     
-    # Yellow mask
-    lower_yellow = np.array([15, 100, 100])
-    upper_yellow = np.array([35, 255, 255])
-    mask_yellow = cv2.inRange(hsv, lower_yellow, upper_yellow)
+    # Check lane width consistency
+    lane_widths = []
+    for i in range(min(len(left_points), len(right_points))):
+        width = abs(right_points[i][0] - left_points[i][0])
+        lane_widths.append(width)
     
-    # White mask
-    lower_white = np.array([0, 0, 200])
-    upper_white = np.array([180, 55, 255])
-    mask_white = cv2.inRange(hsv, lower_white, upper_white)
+    width_std = np.std(lane_widths)
+    width_mean = np.mean(lane_widths)
     
-    # Define ROI
+    # Score based on width consistency and expected range
+    width_score = 1.0 if MIN_LANE_WIDTH <= width_mean <= MAX_LANE_WIDTH else 0.5
+    consistency_score = 1.0 - min(width_std / width_mean, 1.0)
+    
+    return (width_score + consistency_score) / 2
+
+def create_dashboard(frame: np.ndarray, car_direction: str, curvature: float, confidence: float) -> np.ndarray:
+    """Create an enhanced dashboard with lane confidence indicator"""
+    width = frame.shape[1]
+    dashboard = np.zeros((DASHBOARD_HEIGHT, width, 3), dtype=np.uint8)
+    dashboard[:] = DASHBOARD_COLOR
+    
+    # Direction indicator
+    direction_color = SUCCESS_COLOR if abs(curvature) < 10 else \
+                     WARNING_COLOR if abs(curvature) < 50 else DANGER_COLOR
+    cv2.putText(dashboard, f"Direction: {car_direction}", (20, 60), FONT, 0.8, direction_color, 2)
+    
+    # Confidence indicator
+    conf_color = SUCCESS_COLOR if confidence > 0.8 else \
+                WARNING_COLOR if confidence > 0.6 else DANGER_COLOR
+    cv2.putText(dashboard, f"Confidence: {confidence:.2f}", (width//2 - 100, 60), FONT, 0.8, conf_color, 2)
+    
+    # Curvature meter
+    meter_width = 200
+    meter_height = 20
+    meter_x = width - meter_width - 20
+    meter_y = 40
+    
+    # Background meter
+    cv2.rectangle(dashboard, (meter_x, meter_y), 
+                 (meter_x + meter_width, meter_y + meter_height), (50, 50, 50), -1)
+    
+    # Dynamic indicator
+    center_x = meter_x + meter_width // 2
+    indicator_x = int(center_x + (curvature / 100) * (meter_width // 2))
+    indicator_x = max(meter_x, min(meter_x + meter_width, indicator_x))
+    cv2.circle(dashboard, (indicator_x, meter_y + meter_height // 2), 
+              10, direction_color, -1)
+    
+    return dashboard
+
+def enhance_visualization(frame: np.ndarray, dot_positions: np.ndarray) -> Tuple[np.ndarray, float]:
+    width = frame.shape[1]
     height, width = frame.shape[:2]
-    mask_roi = np.zeros_like(mask_yellow)
-    polygon = np.array([[
-        (int(0.1 * width), height),
-        (int(0.45 * width), int(0.6 * height)),
-        (int(0.55 * width), int(0.6 * height)),
-        (int(0.9 * width), height)
-    ]], np.int32)
-    cv2.fillPoly(mask_roi, polygon, 255)
+    overlay = frame.copy()
+    confidence = 0.0
     
-    # Apply ROI to masks
-    mask_yellow = cv2.bitwise_and(mask_yellow, mask_roi)
-    mask_white = cv2.bitwise_and(mask_white, mask_roi)
+    if len(dot_positions) > 1:
+        # Sort points by y-coordinate
+        sorted_indices = np.argsort(dot_positions[:, 1])
+        sorted_positions = dot_positions[sorted_indices]
+        points = np.int32(sorted_positions)
+        
+        # Separate left and right lane points
+        center_line = np.mean(points, axis=0)[0]
+        left_points = points[points[:, 0] < center_line]
+        right_points = points[points[:, 0] >= center_line]
+        
+        if len(left_points) > 0 and len(right_points) > 0:
+            # Calculate confidence
+            confidence = calculate_lane_confidence(left_points, right_points)
+            
+            # Draw individual dots for left points
+            for point in left_points:
+                cv2.circle(overlay, 
+                          (int(point[0]), int(point[1])), 
+                          DOT_SIZE, 
+                          DOT_COLOR, 
+                          -1)  # -1 means filled circle
+            
+            # Draw individual dots for right points
+            for point in right_points:
+                cv2.circle(overlay, 
+                          (int(point[0]), int(point[1])), 
+                          DOT_SIZE, 
+                          DOT_COLOR, 
+                          -1)
+            
+            # Optional: Draw dots with size based on confidence
+            dot_size = int(DOT_SIZE * confidence)
+            for point in np.vstack((left_points, right_points)):
+                cv2.circle(overlay,
+                          (int(point[0]), int(point[1])),
+                          max(1, dot_size),
+                          tuple(map(lambda x: int(x * confidence), SUCCESS_COLOR)),
+                          -1)
     
-    # Edge detection for yellow
-    edges_yellow = cv2.Canny(mask_yellow, 50, 150)
-    lines_yellow = cv2.HoughLinesP(edges_yellow, 1, np.pi/180, threshold=50, minLineLength=100, maxLineGap=50)
-    
-    # Edge detection for white
-    edges_white = cv2.Canny(mask_white, 50, 150)
-    lines_white = cv2.HoughLinesP(edges_white, 1, np.pi/180, threshold=50, minLineLength=100, maxLineGap=50)
-    
-    line_image = np.zeros_like(frame)
-    
-    if lines_yellow is not None:
-        for line in lines_yellow:
+    # Blend overlay with original frame
+    result = cv2.addWeighted(overlay, OVERLAY_ALPHA, frame, 1 - OVERLAY_ALPHA, 0)
+    return result, confidence
+
+def stay_in_center(frame, smoothed_dot_positions):
+    """
+    Make the car stay in the center and render a dynamic 3D dotted line.
+    """
+    height, width = frame.shape[:2]
+    target_position = width // 2
+
+    if len(smoothed_dot_positions) == 0:
+        car_direction = "No Lane Detected"
+        curvature = 0
+    else:
+        car_position = np.mean(smoothed_dot_positions[:, 0])
+        frame_center = width // 2
+        steering_angle = car_position - frame_center
+
+        if abs(steering_angle) > 50:
+            car_direction = "↺ Turn Right" if steering_angle < 0 else "Turn Left ↻"
+        elif abs(steering_angle) > 10:
+            car_direction = "→ Small Right" if steering_angle < 0 else "Small Left ←"
+        else:
+            car_direction = "▲ Straight Ahead" if len(smoothed_dot_positions) > 50 else "● Center"
+
+        curvature = car_position - target_position
+
+    # Enhanced visualization
+    frame, confidence = enhance_visualization(frame, smoothed_dot_positions)
+    dashboard = create_dashboard(frame, car_direction, curvature, confidence)
+
+    # Add dashboard to frame
+    frame[-DASHBOARD_HEIGHT:] = cv2.addWeighted(
+        frame[-DASHBOARD_HEIGHT:], 1 - DASHBOARD_ALPHA,
+        dashboard, DASHBOARD_ALPHA, 0
+    )
+
+    return frame, curvature
+
+def preprocess_frame(frame, roi_vertices):
+    """
+    Preprocess the frame to detect edges and apply ROI mask.
+    """
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(blur, 50, 150)
+    roi_mask = np.zeros_like(edges)
+    cv2.fillPoly(roi_mask, roi_vertices, 255)
+    masked_edges = cv2.bitwise_and(edges, roi_mask)
+    return masked_edges
+
+def calculate_dot_positions(lines):
+    """
+    Calculate the dot positions from the detected lines.
+    """
+    dot_positions = []
+    if lines is not None:
+        for line in lines:
             x1, y1, x2, y2 = line[0]
-            color = (0, 255, 255)  # Yellow
-            cv2.line(line_image, (x1, y1), (x2, y2), color, 5)
-    
-    if lines_white is not None:
-        for line in lines_white:
-            x1, y1, x2, y2 = line[0]
-            color = (255, 255, 255)  # White
-            cv2.line(line_image, (x1, y1), (x2, y2), color, 5)
-    
-    combined = cv2.addWeighted(frame, 0.8, line_image, 1, 0)
-    return combined
+            slope = (y2 - y1) / (x2 - x1 + 1e-6)
+            if 0.1 < abs(slope) < 1.0:
+                dx = (x2 - x1) / 10
+                dy = (y2 - y1) / 10
+                dot_positions.extend([(x1 + i * dx, y1 + i * dy) for i in range(10)])
+        dot_positions = np.array(dot_positions)
+    return dot_positions
+
+def lerp(a: np.ndarray, b: np.ndarray, t: float) -> np.ndarray:
+    """
+    Linearly interpolate between two arrays a and b by factor t.
+    """
+    return a + t * (b - a)
 
 def main():
-    cap = cv2.VideoCapture('videos/lane_detect_2.mp4')
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter('output_lane_detection.mp4', fourcc, 20.0, (int(cap.get(3)), int(cap.get(4))))
-    
-    while cap.isOpened():
+    video_path = "videos/Better test.mp4"
+    cap = cv2.VideoCapture(video_path)
+
+    if not cap.isOpened():
+        print("Error: Could not open video.")
+        return
+
+    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    output_video = cv2.VideoWriter("line_detection_output.mp4", fourcc, fps, (frame_width, frame_height))
+
+    prev_dot_positions = None
+    roi_vertices = np.array([[(int(x * frame_width), int(y * frame_height)) for x, y in ROI_VERTICES_RATIO]], dtype=np.int32)
+
+    while True:
         ret, frame = cap.read()
         if not ret:
             break
 
-        processed = process_frame(frame)
-        out.write(processed)
-        cv2.imshow('Lane Detection', processed)
+        masked_edges = preprocess_frame(frame, roi_vertices)
+        lines = cv2.HoughLinesP(masked_edges, 1, np.pi / 180, THRESHOLD, minLineLength=MIN_LINE_LENGTH, maxLineGap=MAX_LINE_GAP)
+        dot_positions = calculate_dot_positions(lines)
 
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        if prev_dot_positions is None or prev_dot_positions.shape[0] != dot_positions.shape[0]:
+            smoothed_dot_positions = dot_positions
+        else:
+            smoothed_dot_positions = lerp(prev_dot_positions, dot_positions, SMOOTHING_FACTOR)
+
+        prev_dot_positions = smoothed_dot_positions
+        processed_frame, curvature = stay_in_center(frame, smoothed_dot_positions)
+
+        if smoothed_dot_positions.shape[0] > 1:
+            sorted_indices = np.argsort(smoothed_dot_positions[:, 1])
+            sorted_positions = smoothed_dot_positions[sorted_indices]
+            for i in range(sorted_positions.shape[0] - 1):
+                start_point = (int(sorted_positions[i][0]), int(sorted_positions[i][1]))
+                end_point = (int(sorted_positions[i+1][0]), int(sorted_positions[i+1][1]))
+                # cv2.line(processed_frame, start_point, end_point, LINE_COLOR, 1)
+                # This is for line drawing between the data points.
+
+        output_video.write(processed_frame)
+        cv2.imshow("Lane Detection System", processed_frame)
+        print("Curvature:", curvature)
+
+        if cv2.waitKey(1) == ord('q'):
             break
 
     cap.release()
-    out.release()
+    output_video.release()
     cv2.destroyAllWindows()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
-    def calculate_steering_angle(frame, lines):
-        height, width, _ = frame.shape
-        if lines is None:
-            return 0  # No lines detected, go straight
-
-        left_lines = []
-        right_lines = []
-
-        for line in lines:
-            x1, y1, x2, y2 = line[0]
-            slope = (y2 - y1) / (x2 - x1)
-            if slope < 0:
-                left_lines.append(line)
-            else:
-                right_lines.append(line)
-
-        if len(left_lines) == 0 or len(right_lines) == 0:
-            return 0  # Not enough lines to determine direction
-
-        left_line = np.mean(left_lines, axis=0).astype(int)
-        right_line = np.mean(right_lines, axis=0).astype(int)
-
-        mid_x = width // 2
-        left_x2 = left_line[0][2]
-        right_x2 = right_line[0][2]
-        mid_lane_x = (left_x2 + right_x2) // 2
-
-        steering_angle = np.arctan2(mid_lane_x - mid_x, height) * 180 / np.pi
-        return steering_angle
-
-    def draw_steering_line(frame, angle):
-        height, width, _ = frame.shape
-        mid_x = width // 2
-        length = height // 2
-
-        end_x = int(mid_x + length * np.tan(angle * np.pi / 180))
-        end_y = height // 2
-
-        cv2.line(frame, (mid_x, height), (end_x, end_y), (0, 0, 255), 5)
-        return frame
-
-    def main():
-        cap = cv2.VideoCapture('videos/lane_detect_2.mp4')
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter('output_lane_detection.mp4', fourcc, 20.0, (int(cap.get(3)), int(cap.get(4))))
-        
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            processed = process_frame(frame)
-            lines = cv2.HoughLinesP(cv2.Canny(cv2.cvtColor(processed, cv2.COLOR_BGR2GRAY), 50, 150), 1, np.pi/180, threshold=50, minLineLength=100, maxLineGap=50)
-            angle = calculate_steering_angle(frame, lines)
-            processed = draw_steering_line(processed, angle)
-            
-            out.write(processed)
-            cv2.imshow('Lane Detection', processed)
-
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-
-        cap.release()
-        out.release()
-        cv2.destroyAllWindows()
-
-    if __name__ == '__main__':
-        main()
-        def add_speedometer(frame, speed):
-            height, width = frame.shape[:2]
-            # Create speedometer position
-            pos = (width - 150, height - 50)
-            cv2.putText(frame, f'Speed: {speed:.1f} km/h', pos, 
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-            return frame
-
-        def add_lane_departure_warning(frame, steering_angle):
-            if abs(steering_angle) > 20:
-                cv2.putText(frame, 'LANE DEPARTURE WARNING!', (50, 50),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-            return frame
-
-        def simulate_speed(steering_angle):
-            # Simulate lower speed in sharp turns
-            base_speed = 60
-            return base_speed * (1 - abs(steering_angle) / 45)
-
-        def night_vision_mode(frame):
-            # Enhance frame visibility in dark conditions
-            lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
-            l, a, b = cv2.split(lab)
-            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
-            l = clahe.apply(l)
-            enhanced = cv2.merge((l,a,b))
-            return cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
-
-        def process_frame(frame):
-            # Check if it's dark
-            is_dark = np.mean(frame) < 100
-            if is_dark:
-                frame = night_vision_mode(frame)
-            
-            processed = process_frame(frame)
-            lines = cv2.HoughLinesP(cv2.Canny(cv2.cvtColor(processed, cv2.COLOR_BGR2GRAY), 
-                                   50, 150), 1, np.pi/180, threshold=50, 
-                                   minLineLength=100, maxLineGap=50)
-            
-            angle = calculate_steering_angle(frame, lines)
-            speed = simulate_speed(angle)
-            
-            processed = draw_steering_line(processed, angle)
-            processed = add_speedometer(processed, speed)
-            processed = add_lane_departure_warning(processed, angle)
-            
-            return processed
